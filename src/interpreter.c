@@ -1,3 +1,4 @@
+
 #include "interpreter.h"
 #include "sql_executor.h"
 #include "error.h"
@@ -274,8 +275,8 @@ static void execute_if(const Ast *node)
         execute_list(node->body);
     } else if (node->else_body != NULL) {
         /*
-         * An ELSIF branch is stored as another AST_IF node.
-         * A normal ELSE branch is a list of statements.
+         * ELSIF is represented as a nested AST_IF.
+         * Otherwise, else_body is a statement list.
          */
         if (node->else_body->type == AST_IF)
             execute_if(node->else_body);
@@ -287,6 +288,9 @@ static void execute_if(const Ast *node)
 static void execute_list(const Ast *node)
 {
     for (; node != NULL; node = node->next) {
+        if (error_count() != 0)
+            return;
+
         switch (node->type) {
             case AST_BLOCK:
                 execute_list(node->body);
@@ -328,8 +332,16 @@ static void execute_list(const Ast *node)
                 break;
 
             case AST_WHILE:
-                error_set("WHILE execution is not implemented yet",
-                          0, 0);
+                while (error_count() == 0) {
+                    char *value = evaluate(node->condition);
+                    int condition_is_true = truthy(value);
+                    free(value);
+
+                    if (!condition_is_true || error_count() != 0)
+                        break;
+
+                    execute_list(node->body);
+                }
                 break;
         }
     }

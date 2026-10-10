@@ -1,3 +1,4 @@
+
 #include <stddef.h>
 #include "semantic.h"
 #include "error.h"
@@ -85,6 +86,11 @@ static int check_statements(
             valid &= check_expression(node->condition, declarations);
             valid &= check_statements(node->body, declarations);
             valid &= check_statements(node->else_body, declarations);
+        }
+
+        if (node->type == AST_WHILE) {
+            valid &= check_expression(node->condition, declarations);
+            valid &= check_statements(node->body, declarations);
         }
 
         if (node->type == AST_BLOCK)

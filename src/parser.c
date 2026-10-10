@@ -63,6 +63,8 @@ static Expr *parse_expression(void);
 static Ast *parse_statement(void);
 static Ast *parse_block_body(void);
 static Ast *parse_if_tail(void);
+static Ast *parse_if_statement(void);
+static Ast *parse_while_statement(void);
 
 /* ---------- Expressions ---------- */
 
@@ -273,20 +275,6 @@ static Ast *parse_declarations(void)
 
 /* ---------- IF / ELSIF / ELSE ---------- */
 
-/*
- * Called after the IF token has been consumed.
- *
- * Grammar:
- * IF expression THEN
- *     statements
- * [ELSIF expression THEN
- *     statements]
- * [ELSE
- *     statements]
- * END IF;
- *
- * ELSIF is represented as a nested AST_IF node.
- */
 static Ast *parse_if_tail(void)
 {
     Ast *node = ast_new(AST_IF);
@@ -317,6 +305,36 @@ static Ast *parse_if_statement(void)
     expect(TOK_END, "Expected END before IF");
     expect(TOK_IF, "Expected IF after END");
     expect(TOK_SEMICOLON, "Expected ';' after END IF");
+
+    return node;
+}
+
+/* ---------- WHILE loops ---------- */
+
+/*
+ * Grammar:
+ * WHILE expression LOOP
+ *     statements
+ * END LOOP;
+ *
+ * The WHILE token has already been consumed.
+ */
+static Ast *parse_while_statement(void)
+{
+    Ast *node = ast_new(AST_WHILE);
+
+    if (node == NULL)
+        return NULL;
+
+    node->condition = parse_expression();
+
+    expect(TOK_LOOP, "Expected LOOP after WHILE condition");
+
+    node->body = parse_block_body();
+
+    expect(TOK_END, "Expected END after WHILE body");
+    expect(TOK_LOOP, "Expected LOOP after END");
+    expect(TOK_SEMICOLON, "Expected ';' after END LOOP");
 
     return node;
 }
@@ -355,6 +373,9 @@ static Ast *parse_statement(void)
 
     if (accept(TOK_IF))
         return parse_if_statement();
+
+    if (accept(TOK_WHILE))
+        return parse_while_statement();
 
     if (accept(TOK_DBMS_OUTPUT)) {
         expect(TOK_DOT, "Expected '.' after DBMS_OUTPUT");
