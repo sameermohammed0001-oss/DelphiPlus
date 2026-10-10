@@ -1,0 +1,6 @@
+
+build/delphiplus
+src/*.o
+.DS_Store
+*.log
+.vscode/

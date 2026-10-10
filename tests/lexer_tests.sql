@@ -1,0 +1,6 @@
+
+DECLARE
+    n INTEGER := 3;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE(n);
+END;
