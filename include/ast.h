@@ -36,11 +36,14 @@ struct Expr {
 
 struct Ast {
     AstType type;
+
     char *name;
     char *datatype;
     char *sql;
+
     Expr *expr;
     Expr *condition;
+
     Ast *body;
     Ast *else_body;
     Ast *next;
@@ -48,8 +51,10 @@ struct Ast {
 
 Expr *expr_new(ExprType type, const char *text);
 Expr *expr_binary(const char *op, Expr *left, Expr *right);
+
 Ast *ast_new(AstType type);
 void ast_append(Ast **list, Ast *node);
+
 void ast_free(Ast *node);
 void expr_free(Expr *expr);
 

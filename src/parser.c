@@ -60,6 +60,11 @@ static char *duplicate_string(const char *text)
 }
 
 static Expr *parse_expression(void);
+static Ast *parse_statement(void);
+static Ast *parse_block_body(void);
+static Ast *parse_if_tail(void);
+
+/* ---------- Expressions ---------- */
 
 static Expr *parse_primary(void)
 {
@@ -70,7 +75,6 @@ static Expr *parse_primary(void)
 
     if (accept(TOK_STRING)) {
         size_t length = strlen(token->lexeme);
-
         char *value = duplicate_string(token->lexeme);
 
         if (value == NULL)
@@ -115,15 +119,19 @@ static Expr *parse_unary(void)
 {
     if (accept(TOK_MINUS)) {
         Expr *expr = expr_new(EXPR_UNARY, "-");
+
         if (expr != NULL)
             expr->right = parse_unary();
+
         return expr;
     }
 
     if (accept(TOK_NOT)) {
         Expr *expr = expr_new(EXPR_UNARY, "NOT");
+
         if (expr != NULL)
             expr->right = parse_unary();
+
         return expr;
     }
 
@@ -200,6 +208,8 @@ static Expr *parse_expression(void)
     return left;
 }
 
+/* ---------- Declarations ---------- */
+
 static int is_datatype(TokenType type)
 {
     return type == TOK_NUMBER_KW ||
@@ -209,15 +219,12 @@ static int is_datatype(TokenType type)
            type == TOK_BOOLEAN;
 }
 
-static Ast *parse_statement(void);
-
 static Ast *parse_declarations(void)
 {
     Ast *list = NULL;
 
     while (current()->type == TOK_IDENTIFIER) {
         Token *name = advance_token();
-
         Ast *node = ast_new(AST_DECLARE);
 
         if (node == NULL)
@@ -227,8 +234,7 @@ static Ast *parse_declarations(void)
 
         if (!is_datatype(current()->type)) {
             error_set("Expected a supported datatype",
-                      current()->line,
-                      current()->column);
+                      current()->line, current()->column);
 
             ast_append(&list, node);
 
@@ -265,12 +271,65 @@ static Ast *parse_declarations(void)
     return list;
 }
 
+/* ---------- IF / ELSIF / ELSE ---------- */
+
+/*
+ * Called after the IF token has been consumed.
+ *
+ * Grammar:
+ * IF expression THEN
+ *     statements
+ * [ELSIF expression THEN
+ *     statements]
+ * [ELSE
+ *     statements]
+ * END IF;
+ *
+ * ELSIF is represented as a nested AST_IF node.
+ */
+static Ast *parse_if_tail(void)
+{
+    Ast *node = ast_new(AST_IF);
+
+    if (node == NULL)
+        return NULL;
+
+    node->condition = parse_expression();
+
+    expect(TOK_THEN, "Expected THEN after IF condition");
+
+    node->body = parse_block_body();
+
+    if (accept(TOK_ELSIF)) {
+        node->else_body = parse_if_tail();
+    } else if (accept(TOK_ELSE)) {
+        node->else_body = parse_block_body();
+    }
+
+    return node;
+}
+
+static Ast *parse_if_statement(void)
+{
+    /* IF token has already been consumed. */
+    Ast *node = parse_if_tail();
+
+    expect(TOK_END, "Expected END before IF");
+    expect(TOK_IF, "Expected IF after END");
+    expect(TOK_SEMICOLON, "Expected ';' after END IF");
+
+    return node;
+}
+
+/* ---------- General statements ---------- */
+
 static Ast *parse_block_body(void)
 {
     Ast *list = NULL;
 
     while (current()->type != TOK_END &&
            current()->type != TOK_ELSE &&
+           current()->type != TOK_ELSIF &&
            current()->type != TOK_EXCEPTION &&
            current()->type != TOK_EOF) {
         size_t old_position = position;
@@ -282,8 +341,7 @@ static Ast *parse_block_body(void)
 
         if (position == old_position) {
             error_set("Parser could not advance",
-                      current()->line,
-                      current()->column);
+                      current()->line, current()->column);
             advance_token();
         }
     }
@@ -294,6 +352,9 @@ static Ast *parse_block_body(void)
 static Ast *parse_statement(void)
 {
     Token *token = current();
+
+    if (accept(TOK_IF))
+        return parse_if_statement();
 
     if (accept(TOK_DBMS_OUTPUT)) {
         expect(TOK_DOT, "Expected '.' after DBMS_OUTPUT");
@@ -306,7 +367,8 @@ static Ast *parse_statement(void)
             node->expr = parse_expression();
 
         expect(TOK_RPAREN, "Expected ')' after expression");
-        expect(TOK_SEMICOLON, "Expected ';' after output statement");
+        expect(TOK_SEMICOLON,
+               "Expected ';' after output statement");
 
         return node;
     }
@@ -345,8 +407,7 @@ static Ast *parse_statement(void)
         }
 
         error_set("Expected ':=' after variable name",
-                  name->line,
-                  name->column);
+                  name->line, name->column);
 
         while (current()->type != TOK_SEMICOLON &&
                current()->type != TOK_EOF) {
@@ -401,12 +462,13 @@ static Ast *parse_statement(void)
     }
 
     error_set("Unsupported statement",
-              token->line,
-              token->column);
+              token->line, token->column);
 
     advance_token();
     return NULL;
 }
+
+/* ---------- Program entry ---------- */
 
 Ast *parser_parse(TokenArray *input)
 {
@@ -444,12 +506,14 @@ Ast *parser_parse(TokenArray *input)
 
             last->next = body;
         }
+    } else {
+        error_set("Expected BEGIN block",
+                  current()->line, current()->column);
     }
 
     if (current()->type != TOK_EOF)
         error_set("Unexpected tokens after program",
-                  current()->line,
-                  current()->column);
+                  current()->line, current()->column);
 
     return program;
 }

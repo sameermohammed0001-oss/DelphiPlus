@@ -1,4 +1,3 @@
-
 #include "interpreter.h"
 #include "sql_executor.h"
 #include "error.h"
@@ -7,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 typedef struct Variable {
     char *name;
@@ -45,6 +45,17 @@ static int same_name(const char *a, const char *b)
     }
 
     return *a == *b;
+}
+
+static int is_numeric_text(const char *text)
+{
+    if (text == NULL || *text == '\0')
+        return 0;
+
+    char *end = NULL;
+    strtod(text, &end);
+
+    return end != text && *end == '\0';
 }
 
 static Variable *find_variable(const char *name)
@@ -93,8 +104,19 @@ static void clear_variables(void)
 
 static int truthy(const char *value)
 {
-    return same_name(value, "TRUE") ||
-           (value != NULL && atoi(value) != 0);
+    if (value == NULL || same_name(value, "NULL"))
+        return 0;
+
+    if (same_name(value, "TRUE"))
+        return 1;
+
+    if (same_name(value, "FALSE"))
+        return 0;
+
+    if (is_numeric_text(value))
+        return strtod(value, NULL) != 0.0;
+
+    return value[0] != '\0';
 }
 
 static char *evaluate(const Expr *expr)
@@ -159,7 +181,7 @@ static char *evaluate(const Expr *expr)
                strcmp(expr->op, "/") == 0) {
         double a = atof(left);
         double b = atof(right);
-        double answer = 0;
+        double answer = 0.0;
 
         if (strcmp(expr->op, "+") == 0)
             answer = a + b;
@@ -167,36 +189,65 @@ static char *evaluate(const Expr *expr)
             answer = a - b;
         else if (strcmp(expr->op, "*") == 0)
             answer = a * b;
-        else if (b != 0)
+        else if (b != 0.0)
             answer = a / b;
         else
             error_set("Division by zero", 0, 0);
 
         snprintf(result, sizeof(result), "%.10g", answer);
     } else if (strcmp(expr->op, "=") == 0) {
+        int equal;
+
+        if (is_numeric_text(left) && is_numeric_text(right))
+            equal = strtod(left, NULL) == strtod(right, NULL);
+        else
+            equal = same_name(left, right);
+
         snprintf(result, sizeof(result), "%s",
-                 same_name(left, right) ? "TRUE" : "FALSE");
+                 equal ? "TRUE" : "FALSE");
     } else if (strcmp(expr->op, "<>") == 0 ||
                strcmp(expr->op, "!=") == 0) {
+        int equal;
+
+        if (is_numeric_text(left) && is_numeric_text(right))
+            equal = strtod(left, NULL) == strtod(right, NULL);
+        else
+            equal = same_name(left, right);
+
         snprintf(result, sizeof(result), "%s",
-                 !same_name(left, right) ? "TRUE" : "FALSE");
+                 !equal ? "TRUE" : "FALSE");
+    } else if (strcmp(expr->op, "AND") == 0) {
+        snprintf(result, sizeof(result), "%s",
+                 truthy(left) && truthy(right) ? "TRUE" : "FALSE");
+    } else if (strcmp(expr->op, "OR") == 0) {
+        snprintf(result, sizeof(result), "%s",
+                 truthy(left) || truthy(right) ? "TRUE" : "FALSE");
     } else {
-        double a = atof(left);
-        double b = atof(right);
+        int comparison = 0;
+
+        if (is_numeric_text(left) && is_numeric_text(right)) {
+            double a = strtod(left, NULL);
+            double b = strtod(right, NULL);
+
+            if (a < b)
+                comparison = -1;
+            else if (a > b)
+                comparison = 1;
+        } else {
+            int cmp = strcmp(left, right);
+            comparison = (cmp < 0) ? -1 : (cmp > 0) ? 1 : 0;
+        }
+
         int answer = 0;
 
         if (strcmp(expr->op, "<") == 0)
-            answer = a < b;
+            answer = comparison < 0;
         else if (strcmp(expr->op, ">") == 0)
-            answer = a > b;
+            answer = comparison > 0;
         else if (strcmp(expr->op, "<=") == 0)
-            answer = a <= b;
+            answer = comparison <= 0;
         else if (strcmp(expr->op, ">=") == 0)
-            answer = a >= b;
-        else if (strcmp(expr->op, "AND") == 0)
-            answer = truthy(left) && truthy(right);
-        else if (strcmp(expr->op, "OR") == 0)
-            answer = truthy(left) || truthy(right);
+            answer = comparison >= 0;
 
         snprintf(result, sizeof(result), "%s",
                  answer ? "TRUE" : "FALSE");
@@ -206,6 +257,31 @@ static char *evaluate(const Expr *expr)
     free(right);
 
     return copy_string(result);
+}
+
+static void execute_list(const Ast *node);
+
+static void execute_if(const Ast *node)
+{
+    if (node == NULL)
+        return;
+
+    char *value = evaluate(node->condition);
+    int condition_is_true = truthy(value);
+    free(value);
+
+    if (condition_is_true) {
+        execute_list(node->body);
+    } else if (node->else_body != NULL) {
+        /*
+         * An ELSIF branch is stored as another AST_IF node.
+         * A normal ELSE branch is a list of statements.
+         */
+        if (node->else_body->type == AST_IF)
+            execute_if(node->else_body);
+        else
+            execute_list(node->else_body);
+    }
 }
 
 static void execute_list(const Ast *node)
@@ -244,15 +320,16 @@ static void execute_list(const Ast *node)
                 sql_execute(node->sql);
                 break;
 
+            case AST_IF:
+                execute_if(node);
+                break;
+
             case AST_EXPR_STMT:
                 break;
 
-            case AST_IF:
             case AST_WHILE:
-                error_set(
-                    "IF and LOOP execution are not implemented yet",
-                    0, 0
-                );
+                error_set("WHILE execution is not implemented yet",
+                          0, 0);
                 break;
         }
     }
