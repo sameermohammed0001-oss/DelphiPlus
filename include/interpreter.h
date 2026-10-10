@@ -4,6 +4,6 @@
 #include "ast.h"
 #include "semantic.h"
 
-int interpret(Ast *program);
+int interpreter_run(Ast *program);
 
 #endif
