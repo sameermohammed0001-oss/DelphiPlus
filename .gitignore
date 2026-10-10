@@ -1,6 +1,12 @@
-
-build/delphiplus
+# Build output and binaries
+build/
+*.exe
+*.o
 src/*.o
+
+# OS and Editor metadata
 .DS_Store
+Thumbs.db
 *.log
 .vscode/
+.idea/
